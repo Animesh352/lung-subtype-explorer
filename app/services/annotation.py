@@ -84,9 +84,7 @@ def fetch_annotation(symbol: str, client: httpx.Client) -> AnnotationResult:
             f"HTTP {exc.response.status_code} from MyGene.info for {symbol!r}"
         ) from exc
     except httpx.RequestError as exc:
-        raise AnnotationFetchError(
-            f"Request error from MyGene.info for {symbol!r}: {exc}"
-        ) from exc
+        raise AnnotationFetchError(f"Request error from MyGene.info for {symbol!r}: {exc}") from exc
 
     hits = resp.json().get("hits", [])
     if not hits:
@@ -214,9 +212,7 @@ def batch_annotate(
         return []
 
     cached_symbols: set[str] = set(
-        session.scalars(
-            select(_Row.symbol).where(_Row.symbol.in_(symbols))
-        )
+        session.scalars(select(_Row.symbol).where(_Row.symbol.in_(symbols)))
     )
     n_cached = len(cached_symbols)
     n_fetch = len(symbols) - n_cached
