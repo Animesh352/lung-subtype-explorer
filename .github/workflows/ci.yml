@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: lung_user
+          POSTGRES_PASSWORD: lung_password
+          POSTGRES_DB: lung_transcriptomics
+        options: >-
+          --health-cmd "pg_isready -U lung_user -d lung_transcriptomics"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://lung_user:lung_password@localhost:5432/lung_transcriptomics
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run migrations
+        run: alembic upgrade head
+
+      - name: Lint
+        run: ruff check . && ruff format --check .
+
+      - name: Run tests with coverage
+        run: pytest tests/ --cov=app --cov=pipeline --cov-report=term-missing -v

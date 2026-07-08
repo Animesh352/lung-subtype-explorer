@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lung_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lung_password}
+      POSTGRES_DB: ${POSTGRES_DB:-lung_transcriptomics}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lung_user} -d ${POSTGRES_DB:-lung_transcriptomics}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lung_user}:${POSTGRES_PASSWORD:-lung_password}@db:5432/${POSTGRES_DB:-lung_transcriptomics}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DEBUG: ${DEBUG:-false}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app
+
+  r-analysis:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: r_analysis/Dockerfile
+    volumes:
+      - ./data/processed:/data/processed:ro
+      - ./r_analysis:/r_analysis
+    command: >
+      Rscript /r_analysis/differential_expression.R
+      /data/processed/expression_matrix.parquet
+      /data/processed/sample_metadata.parquet
+      /r_analysis/output/de_results.csv
+    profiles:
+      - analysis
+
+volumes:
+  postgres_data:

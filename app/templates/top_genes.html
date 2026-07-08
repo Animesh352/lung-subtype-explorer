@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Top Discriminative Genes &mdash; LungTX{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Top Discriminative Genes</h1>
+  <p class="text-muted text-sm">
+    Ranked by mean absolute SHAP value from the XGBoost LUAD / LUSC classifier,
+    joined with limma differential expression results.
+    logFC > 0 indicates higher expression in LUAD.
+  </p>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:3rem">#</th>
+          <th>Gene</th>
+          <th>SHAP</th>
+          <th>logFC</th>
+          <th>adj.P.Val</th>
+          <th>Type</th>
+          <th style="width:32rem">Annotation summary</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for gene in genes %}
+        <tr>
+          <td class="text-muted nowrap">{{ gene.rank }}</td>
+          <td class="nowrap">
+            <a href="/?q={{ gene.gene_symbol }}" class="font-mono font-bold">{{ gene.gene_symbol }}</a>
+          </td>
+          <td class="nowrap">{{ "%.4f" % gene.mean_shap }}</td>
+          <td class="nowrap">
+            {% if gene.log_fc is not none %}
+              <span style="color:{% if gene.log_fc > 0 %}var(--lusc){% else %}var(--luad){% endif %}; font-weight:600">
+                {{ "%+.2f" % gene.log_fc }}
+              </span>
+            {% else %}
+              <span class="text-muted">&mdash;</span>
+            {% endif %}
+          </td>
+          <td class="nowrap">
+            {% if gene.adj_p_val is not none %}
+              {% if gene.adj_p_val < 0.05 %}
+                <strong>{{ "%.3g" % gene.adj_p_val }}</strong>
+              {% else %}
+                {{ "%.3g" % gene.adj_p_val }}
+              {% endif %}
+            {% else %}
+              <span class="text-muted">&mdash;</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if gene.annotation and gene.annotation.gene_type %}
+              <span class="badge badge-neutral">{{ gene.annotation.gene_type }}</span>
+            {% endif %}
+          </td>
+          <td class="text-muted text-sm">
+            {% if gene.annotation and gene.annotation.name %}
+              <span class="font-bold" style="color:var(--text)">{{ gene.annotation.name }}</span>
+              {% if gene.annotation.summary %}
+                &mdash;
+                {% if gene.annotation.summary | length > 130 %}
+                  {{ gene.annotation.summary[:130] }}&hellip;
+                {% else %}
+                  {{ gene.annotation.summary }}
+                {% endif %}
+              {% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

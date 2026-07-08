@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block title %}Predict Subtype &mdash; LungTX{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Predict LUAD / LUSC Subtype</h1>
+  <p class="text-muted text-sm">
+    Submit a sample's log&#x2082;-normalized gene expression profile to classify it as
+    lung adenocarcinoma (LUAD) or squamous cell carcinoma (LUSC).
+    The model requires all {{ feature_count }} genes used during training.
+  </p>
+</div>
+
+<div class="predict-grid">
+
+  <!-- Left: input panel -->
+  <div>
+
+    <div class="card mb-4">
+      <h2 class="mb-2">Upload CSV file</h2>
+      <p class="text-sm text-muted mb-4">
+        Two-column CSV with header: <code>gene_symbol,value</code>
+      </p>
+      <form id="file-form">
+        <input
+          type="file"
+          id="csv-file"
+          accept=".csv,.tsv,.txt"
+          class="input mb-4"
+          style="padding:.4375rem .75rem"
+        >
+        <button type="submit" class="btn btn-primary" style="width:100%">
+          Predict from file
+        </button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2 class="mb-2">Paste expression values</h2>
+      <p class="text-sm text-muted mb-4">
+        One gene per line: <code>GENE_SYMBOL,value</code>
+      </p>
+      <form id="text-form">
+        <textarea
+          class="input font-mono mb-4"
+          id="csv-text"
+          rows="11"
+          placeholder="TP53,3.14&#10;EGFR,1.20&#10;KRT5,8.50&#10;..."
+          style="font-size:.8125rem; line-height:1.5"
+        ></textarea>
+        <button type="submit" class="btn btn-primary" style="width:100%">
+          Predict from text
+        </button>
+      </form>
+    </div>
+
+  </div>
+
+  <!-- Right: result panel -->
+  <div id="result-panel">
+    <div class="card" style="text-align:center; padding:3.5rem 2rem; color:var(--text-muted)">
+      <p style="font-size:1rem">Submit expression data to see a prediction.</p>
+      <p class="text-sm mt-2">
+        Requires all <strong>{{ feature_count }}</strong> model features.
+      </p>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function showLoading() {
+  document.getElementById('result-panel').innerHTML = `
+    <div class="card" style="text-align:center; padding:3.5rem 2rem">
+      <div class="spinner-wrap" style="justify-content:center">
+        <span class="spinner"></span>
+        <span>Running inference&hellip;</span>
+      </div>
+    </div>`;
+}
+
+function showError(msg) {
+  document.getElementById('result-panel').innerHTML = `
+    <div class="alert alert-error">${msg}</div>`;
+}
+
+function showResult(data) {
+  const luadPct = (data.probabilities.LUAD * 100).toFixed(1);
+  const luscPct = (data.probabilities.LUSC * 100).toFixed(1);
+  const isLuad = data.predicted_subtype === 'LUAD';
+
+  document.getElementById('result-panel').innerHTML = `
+    <div class="card">
+      <h2 class="mb-6">Result</h2>
+
+      <div style="text-align:center; margin-bottom:1.75rem">
+        <div class="text-xs text-muted" style="text-transform:uppercase; letter-spacing:.08em; margin-bottom:.5rem">Predicted subtype</div>
+        <div class="subtype-display subtype-${data.predicted_subtype.toLowerCase()}">${data.predicted_subtype}</div>
+        <div class="text-muted text-sm mt-2">
+          ${isLuad ? 'Lung Adenocarcinoma' : 'Lung Squamous Cell Carcinoma'}
+        </div>
+      </div>
+
+      <div class="prob-labels">
+        <span class="luad-label">LUAD ${luadPct}%</span>
+        <span class="lusc-label">LUSC ${luscPct}%</span>
+      </div>
+      <div class="prob-wrap">
+        <div class="prob-luad" style="width:${luadPct}%"></div>
+        <div class="prob-lusc" style="flex:1"></div>
+      </div>
+
+      <div class="mt-6 text-xs text-muted">
+        Model&nbsp;<span class="font-mono">${data.model_version}</span>
+      </div>
+    </div>`;
+}
+
+async function runPredict(body, isJson) {
+  showLoading();
+  try {
+    const res = isJson
+      ? await fetch('/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ features: body }),
+        })
+      : await fetch('/predict/upload', { method: 'POST', body });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      const d = data.detail;
+      const msg = typeof d === 'string'
+        ? d
+        : d && d.message
+          ? `${d.message} (first missing: ${(d.missing_genes || []).slice(0,3).join(', ')})`
+          : JSON.stringify(d);
+      showError(msg);
+      return;
+    }
+
+    showResult(data);
+  } catch (err) {
+    showError(err.message || 'Unexpected error.');
+  }
+}
+
+document.getElementById('file-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const file = document.getElementById('csv-file').files[0];
+  if (!file) { showError('Please choose a file.'); return; }
+  const fd = new FormData();
+  fd.append('file', file);
+  runPredict(fd, false);
+});
+
+document.getElementById('text-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const text = document.getElementById('csv-text').value.trim();
+  if (!text) { showError('Please paste expression values.'); return; }
+
+  const features = {};
+  let parseError = null;
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const comma = trimmed.indexOf(',');
+    if (comma < 1) continue;
+    const gene = trimmed.slice(0, comma).trim();
+    const valStr = trimmed.slice(comma + 1).trim();
+    if (gene.toLowerCase() === 'gene_symbol' || gene.toLowerCase() === 'gene') continue;
+    const val = parseFloat(valStr);
+    if (isNaN(val)) { parseError = `Non-numeric value for "${gene}": "${valStr}"`; break; }
+    features[gene] = val;
+  }
+
+  if (parseError) { showError(parseError); return; }
+  if (!Object.keys(features).length) { showError('No valid gene-value pairs found.'); return; }
+  runPredict(features, true);
+});
+</script>
+{% endblock %}

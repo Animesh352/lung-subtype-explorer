@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}LungTX{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="nav-brand">LungTX</a>
+    <ul class="nav-links">
+      <li><a href="/" {% if active_page == 'home' %}class="active"{% endif %}>Search</a></li>
+      <li><a href="/top-genes" {% if active_page == 'top_genes' %}class="active"{% endif %}>Top Genes</a></li>
+      <li><a href="/predict" {% if active_page == 'predict' %}class="active"{% endif %}>Predict</a></li>
+    </ul>
+  </div>
+</nav>
+
+<main class="main">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  <div class="footer-inner">
+    LungTX &middot; TCGA LUAD / LUSC transcriptomics
+    {% if model_version %}&middot; model <span class="font-mono">{{ model_version }}</span>{% endif %}
+  </div>
+</footer>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

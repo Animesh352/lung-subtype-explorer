@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}{% if query %}{{ query }} &mdash; LungTX{% else %}LungTX &mdash; Gene Expression Explorer{% endif %}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Gene Expression Explorer</h1>
+  <p class="text-muted text-sm">Search a gene symbol to view its expression distribution across LUAD and LUSC subtypes.</p>
+</div>
+
+<form class="search-row mb-6" id="search-form">
+  <input
+    class="input"
+    type="search"
+    id="gene-input"
+    value="{{ query | upper }}"
+    placeholder="Gene symbol, e.g. TP63, EGFR, KRT5&hellip;"
+    autocomplete="off"
+    spellcheck="false"
+  >
+  <button class="btn btn-primary" type="submit">Search</button>
+</form>
+
+<div id="status-area"></div>
+
+<div id="result-area" class="hidden">
+  <!-- Annotation card -->
+  <div class="card mb-4" id="annotation-card">
+    <div style="display:flex; align-items:baseline; gap:.75rem; flex-wrap:wrap; margin-bottom:.75rem">
+      <h2 class="font-mono" id="gene-title"></h2>
+      <span class="badge badge-neutral" id="gene-type-badge" style="display:none"></span>
+    </div>
+    <p class="text-muted text-sm" id="gene-name" style="margin-bottom:.5rem; font-weight:500"></p>
+    <p class="text-muted text-sm" id="gene-summary" style="max-width:72ch; line-height:1.7"></p>
+    <div class="annotation-grid mt-4" id="annotation-grid"></div>
+  </div>
+
+  <!-- Expression boxplot card -->
+  <div class="card">
+    <h2 class="mb-4">Expression Distribution</h2>
+    <div id="plot" style="width:100%; height:460px"></div>
+    <div class="stat-grid mt-6" id="stat-grid"></div>
+  </div>
+</div>
+
+{% if not query %}
+<div class="card" style="text-align:center; padding:3.5rem 2rem; color:var(--text-muted)">
+  <p style="font-size:1.0625rem">Enter a gene symbol above to explore its expression profile.</p>
+  <p class="text-sm mt-2">
+    Or view the <a href="/top-genes">top discriminative genes</a> ranked by SHAP importance.
+  </p>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<script>
+/* Color palette -- mirrors CSS custom properties */
+const PALETTE = {
+  LUAD: {
+    primary_tumor:     '#3b82f6',
+    recurrent_tumor:   '#60a5fa',
+    solid_tissue_normal: '#93c5fd',
+  },
+  LUSC: {
+    primary_tumor:     '#ef4444',
+    recurrent_tumor:   '#f87171',
+    solid_tissue_normal: '#fca5a5',
+  },
+};
+
+function groupColor(subtype, sampleType) {
+  return (PALETTE[subtype] || {})[sampleType]
+    || (subtype === 'LUAD' ? '#3b82f6' : '#ef4444');
+}
+
+function groupLabel(subtype, sampleType) {
+  const typeLabel = sampleType
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+  return `${subtype} ${typeLabel}`;
+}
+
+/* ---- Render helpers ---- */
+
+function renderPlot(groups) {
+  const traces = groups.map(g => {
+    const color = groupColor(g.subtype, g.sample_type);
+    return {
+      y: g.values,
+      name: groupLabel(g.subtype, g.sample_type),
+      type: 'box',
+      boxmean: true,
+      marker:   { color, size: 3, opacity: .5 },
+      line:     { color, width: 2 },
+      fillcolor: color + '30',
+    };
+  });
+
+  const layout = {
+    yaxis: {
+      title: 'log₂(normalized count + 1)',
+      zeroline: false,
+      gridcolor: '#f1f5f9',
+      tickfont: { size: 12 },
+    },
+    xaxis: { showgrid: false, tickfont: { size: 12 }, tickangle: -35 },
+    showlegend: false,
+    margin: { t: 16, b: 130, l: 68, r: 16 },
+    plot_bgcolor:  '#ffffff',
+    paper_bgcolor: '#ffffff',
+    font: {
+      family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
+      size: 13,
+      color: '#0f172a',
+    },
+  };
+
+  Plotly.newPlot('plot', traces, layout, { responsive: true, displayModeBar: false });
+}
+
+function renderStats(groups) {
+  document.getElementById('stat-grid').innerHTML = groups.map(g => {
+    const color = groupColor(g.subtype, g.sample_type);
+    return `
+      <div class="stat" style="border-left:3px solid ${color}">
+        <div class="stat-label">${groupLabel(g.subtype, g.sample_type)}</div>
+        <div class="stat-value">${g.mean.toFixed(2)}</div>
+        <div class="stat-sub">n = ${g.n} &middot; IQR ${g.q1.toFixed(2)}–${g.q3.toFixed(2)}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderAnnotation(ann, symbol) {
+  document.getElementById('gene-title').textContent = ann.symbol || symbol;
+
+  const badge = document.getElementById('gene-type-badge');
+  if (ann.gene_type) {
+    badge.textContent = ann.gene_type.replace(/-/g, '‑');
+    badge.style.display = '';
+  }
+
+  if (ann.name) {
+    document.getElementById('gene-name').textContent = ann.name;
+  }
+  if (ann.summary) {
+    document.getElementById('gene-summary').textContent = ann.summary;
+  }
+
+  const fields = [
+    ['Entrez ID',  ann.entrez_id],
+    ['Ensembl',    ann.ensembl_id],
+    ['UniProt',    ann.uniprot_id],
+  ].filter(([, v]) => v != null);
+
+  document.getElementById('annotation-grid').innerHTML = fields.map(([label, val]) => `
+    <div class="annotation-item">
+      <span class="annotation-label">${label}</span>
+      <span class="annotation-value font-mono">${val}</span>
+    </div>`).join('');
+}
+
+/* ---- Status helpers ---- */
+
+function showLoading() {
+  document.getElementById('result-area').classList.add('hidden');
+  document.getElementById('status-area').innerHTML = `
+    <div class="spinner-wrap">
+      <span class="spinner"></span>
+      <span>Loading&hellip;</span>
+    </div>`;
+}
+
+function showError(msg) {
+  document.getElementById('status-area').innerHTML =
+    `<div class="alert alert-error">${msg}</div>`;
+  document.getElementById('result-area').classList.add('hidden');
+}
+
+function clearStatus() {
+  document.getElementById('status-area').innerHTML = '';
+}
+
+/* ---- Main load function ---- */
+
+async function loadGene(symbol) {
+  symbol = symbol.trim().toUpperCase();
+  if (!symbol) return;
+
+  showLoading();
+
+  try {
+    const [exprRes, annRes] = await Promise.all([
+      fetch(`/genes/${encodeURIComponent(symbol)}/expression`),
+      fetch(`/genes/${encodeURIComponent(symbol)}`),
+    ]);
+
+    if (!exprRes.ok) {
+      const err = await exprRes.json().catch(() => ({}));
+      throw new Error(err.detail || `Gene "${symbol}" not found in expression database.`);
+    }
+
+    const [exprData, annData] = await Promise.all([
+      exprRes.json(),
+      annRes.json(),
+    ]);
+
+    clearStatus();
+    renderAnnotation(annData, symbol);
+    renderPlot(exprData.groups);
+    renderStats(exprData.groups);
+    document.getElementById('result-area').classList.remove('hidden');
+
+  } catch (err) {
+    showError(err.message || 'An unexpected error occurred.');
+  }
+}
+
+/* ---- Bootstrap ---- */
+
+const initQuery = new URLSearchParams(location.search).get('q') || '';
+if (initQuery) loadGene(initQuery);
+
+document.getElementById('search-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const sym = document.getElementById('gene-input').value.trim().toUpperCase();
+  if (!sym) return;
+  history.pushState({}, '', `/?q=${encodeURIComponent(sym)}`);
+  loadGene(sym);
+});
+
+window.addEventListener('popstate', () => {
+  const sym = new URLSearchParams(location.search).get('q') || '';
+  if (sym) loadGene(sym);
+  else {
+    clearStatus();
+    document.getElementById('result-area').classList.add('hidden');
+  }
+});
+</script>
+{% endblock %}
