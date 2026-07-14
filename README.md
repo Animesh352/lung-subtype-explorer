@@ -48,9 +48,30 @@ The web server only reads from the database and model directory. All heavy compu
 
 The XGBoost model is what the `/predict` endpoint serves. Logistic regression is trained for comparison and its artifact (`lr.joblib`) is saved alongside.
 
-Metrics are written to `models/v<timestamp>/metrics.json` when you run `make train`. The `data/` and `models/` directories are gitignored, so no numbers are hardcoded here.
+Metrics are written to `models/v<timestamp>/metrics.json` when you run `make train`. The `data/` and `models/` directories are gitignored; the numbers below are from one training run on the full TCGA LUAD/LUSC cohort.
 
-TODO(animesh): add held-out test ROC AUC and 5-fold CV AUC after running the full pipeline on TCGA data.
+**Training split:** n_train=903, n_test=226 (stratified 80/20), top 500 DE genes, seed=42, version v20260706_161808.
+
+**5-fold cross-validation on train set (n=903):**
+
+| Model | CV ROC AUC | CV Accuracy | CV F1 |
+|-------|-----------|-------------|-------|
+| XGBoost | 0.9846 +/- 0.0057 | 0.9424 +/- 0.0102 | 0.9402 +/- 0.0108 |
+| Logistic regression | 0.9779 +/- 0.0104 | 0.9369 +/- 0.0184 | 0.9352 +/- 0.0194 |
+
+**Held-out test set (n=226):**
+
+| Model | ROC AUC | Accuracy | F1 | Precision | Recall |
+|-------|---------|----------|----|-----------|--------|
+| XGBoost | 0.9810 | 0.9381 | 0.9358 | 0.9533 | 0.9189 |
+| Logistic regression | 0.9804 | 0.9336 | 0.9315 | 0.9444 | 0.9189 |
+
+XGBoost confusion matrix (test set, LUAD=0 / LUSC=1):
+
+|  | Predicted LUAD | Predicted LUSC |
+|--|---------------|---------------|
+| **True LUAD** | 110 | 5 |
+| **True LUSC** | 9 | 102 |
 
 ## Data source and licensing
 
